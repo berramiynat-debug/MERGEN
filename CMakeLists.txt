@@ -88,12 +88,12 @@ target_include_directories(UI PUBLIC
 
 if(SIMDIS_SDK_FOUND)
     target_link_libraries(UI PUBLIC
-        ${SIMDIS_SDK_BUILD_DIR}/lib/Debug/simVisd.lib
-        ${SIMDIS_SDK_BUILD_DIR}/lib/Debug/simCored.lib
-        ${SIMDIS_SDK_BUILD_DIR}/lib/Debug/simUtild.lib
-        ${SIMDIS_SDK_BUILD_DIR}/lib/Debug/simDatad.lib
-        ${SIMDIS_SDK_BUILD_DIR}/lib/Debug/simNotifyd.lib
-        ${SIMDIS_SDK_BUILD_DIR}/lib/Debug/ImGuiLibd.lib
+        simVis
+        simCore
+        simUtil
+        simData
+        simNotify
+        ImGuiLib
     )
 endif()
 
