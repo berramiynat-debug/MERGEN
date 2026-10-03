@@ -1,0 +1,22 @@
+# Build directories
+build/
+bin/
+lib/
+out/
+.vs/
+
+# Visual Studio temporary files
+*.user
+*.suo
+*.userosv
+*.sln.docstates
+*.VC.db
+*.opendb
+
+# Compiled object and binary files
+*.obj
+*.exe
+*.lib
+*.dll
+*.pdb
+*.ilk
