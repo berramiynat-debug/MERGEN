@@ -1,107 +1,79 @@
-cmake_minimum_required(VERSION 3.15)
-project(SIMDIS_RiskZone_Demo CXX)
-
-set(CMAKE_CXX_STANDARD 17)
+cmake_minimum_required(VERSION 3.21)
+project(SIMDIS_RiskZone_Demo LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# ─────────────────────────────────────────────────────────────
-# Paths - SIMDIS SDK
-# ─────────────────────────────────────────────────────────────
-set(SIMDIS_SDK_BUILD_DIR "D:/Projects/simdissdk/build"
-    CACHE PATH "SIMDIS SDK build output directory")
-
-set(SIMDIS_SDK_SRC_DIR "D:/Projects/simdissdk"
-    CACHE PATH "SIMDIS SDK source root directory")
-
-set(IMGUI_INCLUDE_DIR "D:/Projects/simdissdk/3rd/win64_vc-14.5/ImGui/1.92.4"
-    CACHE PATH "ImGui include directory")
-
-set(IMGUI_EXAMPLES_DIR "${SIMDIS_SDK_SRC_DIR}/Examples/imgui"
-    CACHE PATH "SIMDIS SDK imgui example helpers directory")
-
-# ─────────────────────────────────────────────────────────────
-# Try to locate SIMDIS SDK CMake config
-# ─────────────────────────────────────────────────────────────
-list(APPEND CMAKE_MODULE_PATH "${SIMDIS_SDK_BUILD_DIR}/cmake")
-include("${SIMDIS_SDK_BUILD_DIR}/cmake/ImportSIMDIS_SDK.cmake" OPTIONAL
-        RESULT_VARIABLE SIMDIS_IMPORT_RESULT)
-
-if(SIMDIS_IMPORT_RESULT)
-    message(STATUS "SIMDIS SDK found via ImportSIMDIS_SDK.cmake")
-    set(SIMDIS_SDK_FOUND TRUE)
-    add_definitions(-DSIMDIS_SDK_FOUND)
-else()
-    message(WARNING "SIMDIS SDK import file not found - building in MOCK/HEADLESS mode")
-    set(SIMDIS_SDK_FOUND FALSE)
+set(CMAKE_CXX_EXTENSIONS OFF)
+include(CTest)
+option(MERGEN_WITH_SIMDIS "Build real SIMDIS viewer and UI" ON)
+if(MSVC)
+  add_compile_options(/utf-8 /EHsc)
+  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES)
 endif()
-
-# ─────────────────────────────────────────────────────────────
-# Global includes
-# ─────────────────────────────────────────────────────────────
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}          # for CommonTypes.h
-    ${IMGUI_INCLUDE_DIR}                 # for imgui.h
-    ${IMGUI_EXAMPLES_DIR}               # for SimExamplesGui.h, OsgImGuiHandler.h
-)
-
-if(SIMDIS_SDK_FOUND)
-    include_directories(
-        ${SIMDIS_SDK_SRC_DIR}            # SIMDIS SDK source headers
-        ${SIMDIS_SDK_BUILD_DIR}          # generated headers
-    )
+add_library(Navigation STATIC Navigation/RoutePlanner.cpp Navigation/RouteValidator.cpp)
+target_include_directories(Navigation PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+add_library(Risk STATIC Risk/RiskZone.cpp Risk/ViolationDetector.cpp)
+target_include_directories(Risk PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+if(BUILD_TESTING)
+  foreach(test_name TestRoutePlanner TestRouteValidator TestRiskZone)
+    add_executable(${test_name} "Tests/${test_name}.cpp")
+    target_link_libraries(${test_name} PRIVATE Navigation Risk)
+    if(MSVC)
+      target_compile_options(${test_name} PRIVATE /UNDEBUG)
+    else()
+      target_compile_options(${test_name} PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME ${test_name} COMMAND ${test_name})
+  endforeach()
 endif()
-
-# ─────────────────────────────────────────────────────────────
-# Navigation Library (Kisi 3)
-# ─────────────────────────────────────────────────────────────
-add_library(Navigation STATIC
-    Navigation/RoutePlanner.cpp
-    Navigation/RoutePlanner.h
-    Navigation/RouteValidator.cpp
-    Navigation/RouteValidator.h
-)
-
-# ─────────────────────────────────────────────────────────────
-# UI Library (Kisi 3)
-# ─────────────────────────────────────────────────────────────
-set(UI_SOURCES
-    UI/ControlPanel.cpp
-    UI/ControlPanel.h
-    ${IMGUI_EXAMPLES_DIR}/SimExamplesGui.cpp
-    ${IMGUI_EXAMPLES_DIR}/SimExamplesGui.h
-)
-
-if(SIMDIS_SDK_FOUND)
-    list(APPEND UI_SOURCES
-        ${IMGUI_EXAMPLES_DIR}/OsgImGuiHandler.cpp
-        ${IMGUI_EXAMPLES_DIR}/OsgImGuiHandler.h
-    )
+if(MERGEN_WITH_SIMDIS)
+  set(simdis_home_default "$ENV{USERPROFILE}/Desktop/SimdisSDK")
+  if(DEFINED ENV{SIMDIS_SDK_HOME} AND NOT "$ENV{SIMDIS_SDK_HOME}" STREQUAL "")
+    set(simdis_home_default "$ENV{SIMDIS_SDK_HOME}")
+  endif()
+  set(SIMDIS_HOME "${simdis_home_default}" CACHE PATH "Shared SIMDIS installation, independent of the project")
+  set(SIMDIS_SDK_ROOT "${SIMDIS_HOME}/install" CACHE PATH "Installed SDK prefix")
+  set(SIMDIS_SDK_SRC_DIR "${SIMDIS_HOME}/sdk" CACHE PATH "SDK source with ImGui helpers")
+  set(SIMDIS_THIRD_PARTY_DIR "${SIMDIS_SDK_SRC_DIR}/3rd/win64_vc-14.5" CACHE PATH "Compatible third-party pack")
+  list(PREPEND CMAKE_PREFIX_PATH "${SIMDIS_SDK_ROOT}")
+  file(GLOB dependency_prefixes LIST_DIRECTORIES TRUE "${SIMDIS_THIRD_PARTY_DIR}/*/*")
+  list(APPEND CMAKE_PREFIX_PATH ${dependency_prefixes})
+  find_package(simUtil CONFIG REQUIRED)
+  find_package(imgui CONFIG REQUIRED)
+  find_package(OpenGL REQUIRED)
+  find_package(Threads REQUIRED)
+  set(IMGUI_EXAMPLES_DIR "${SIMDIS_SDK_SRC_DIR}/Examples/imgui")
+  add_library(MergenImGui STATIC "${IMGUI_EXAMPLES_DIR}/OsgImGuiHandler.cpp" "${IMGUI_EXAMPLES_DIR}/SimExamplesGui.cpp")
+  target_include_directories(MergenImGui PUBLIC "${IMGUI_EXAMPLES_DIR}")
+  target_link_libraries(MergenImGui PUBLIC VSI::simUtil imgui::imgui_opengl3 OpenGL::GL Threads::Threads)
+  # Compile a build-directory compatibility copy. Berra's source files stay exact.
+  set(UI_COMPAT_DIR "${CMAKE_CURRENT_BINARY_DIR}/Person3UI")
+  file(MAKE_DIRECTORY "${UI_COMPAT_DIR}")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS UI/ControlPanel.h UI/ControlPanel.cpp)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/UI/ControlPanel.h" person3_header)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/UI/ControlPanel.cpp" person3_source)
+  string(REPLACE "../CommonTypes.h" "CommonTypes.h" person3_header "${person3_header}")
+  string(REPLACE "drawContents_" "draw" person3_header "${person3_header}")
+  string(REPLACE "ControlPanel::drawContents_" "ControlPanel::draw" person3_source "${person3_source}")
+  file(WRITE "${UI_COMPAT_DIR}/ControlPanel.h" "${person3_header}")
+  file(WRITE "${UI_COMPAT_DIR}/ControlPanel.cpp" "${person3_source}")
+  add_library(UI STATIC "${UI_COMPAT_DIR}/ControlPanel.cpp")
+  target_compile_definitions(UI PUBLIC SIMDIS_SDK_FOUND)
+  target_include_directories(UI PUBLIC "${UI_COMPAT_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(UI PUBLIC MergenImGui)
+  add_library(Platform STATIC Platform/PlatformManager.cpp)
+  target_include_directories(Platform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(Platform PUBLIC VSI::simData VSI::simCore)
+  add_library(DemoIntegration STATIC Integration/DemoController.cpp Integration/DemoScenario.cpp)
+  target_include_directories(DemoIntegration PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(DemoIntegration PUBLIC Platform Navigation Risk)
+  add_executable(MergenDemo main.cpp Platform/RouteGraphics.cpp Platform/RiskGraphics.cpp)
+  target_link_libraries(MergenDemo PRIVATE Platform UI DemoIntegration)
+  if(BUILD_TESTING)
+    add_executable(TestPlatformManager Tests/TestPlatformManager.cpp)
+    target_link_libraries(TestPlatformManager PRIVATE Platform Navigation)
+    add_test(NAME TestPlatformManager COMMAND TestPlatformManager)
+    add_executable(TestDemoIntegration Tests/TestDemoIntegration.cpp)
+    target_link_libraries(TestDemoIntegration PRIVATE DemoIntegration)
+    add_test(NAME TestDemoIntegration COMMAND TestDemoIntegration)
+  endif()
 endif()
-
-add_library(UI STATIC ${UI_SOURCES})
-
-target_include_directories(UI PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${IMGUI_INCLUDE_DIR}
-    ${IMGUI_EXAMPLES_DIR}
-)
-
-if(SIMDIS_SDK_FOUND)
-    target_link_libraries(UI PUBLIC
-        simVis
-        simCore
-        simUtil
-        simData
-        simNotify
-        ImGuiLib
-    )
-endif()
-
-# ─────────────────────────────────────────────────────────────
-# Kisi 3 Unit Tests (headless, no SIMDIS needed)
-# ─────────────────────────────────────────────────────────────
-add_executable(TestRoutePlanner Tests/TestRoutePlanner.cpp)
-target_link_libraries(TestRoutePlanner PRIVATE Navigation)
-
-add_executable(TestRouteValidator Tests/TestRouteValidator.cpp)
-target_link_libraries(TestRouteValidator PRIVATE Navigation)
